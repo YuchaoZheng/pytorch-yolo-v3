@@ -80,26 +80,6 @@ if __name__ ==  '__main__':
     args = arg_parse()
     
     scales = args.scales
-    
-    
-#        scales = [int(x) for x in scales.split(',')]
-#        
-#        
-#        
-#        args.reso = int(args.reso)
-#        
-#        num_boxes = [args.reso//32, args.reso//16, args.reso//8]    
-#        scale_indices = [3*(x**2) for x in num_boxes]
-#        scale_indices = list(itertools.accumulate(scale_indices, lambda x,y : x+y))
-#    
-#        
-#        li = []
-#        i = 0
-#        for scale in scale_indices:        
-#            li.extend(list(range(i, scale))) 
-#            i = scale
-#        
-#        scale_indices = li
 
     images = args.images
     batch_size = int(args.bs)
@@ -110,14 +90,16 @@ if __name__ ==  '__main__':
     CUDA = torch.cuda.is_available()
 
     num_classes = 80
+    # 将类别文件载入到我们的程序中，coco.names文件中保存的是所有类别的名字，load_classes()返回一个列表classes，每个元素是一个类别的名字
     classes = load_classes('data/coco.names') 
 
-    #Set up the neural network
+    # Set up the neural network
     print("Loading network.....")
     model = Darknet(args.cfgfile)
     model.load_weights(args.weightsfile)
     print("Network successfully loaded")
-    
+
+    # 网络输入数据大小
     model.net_info["height"] = args.reso
     inp_dim = int(model.net_info["height"])
     assert inp_dim % 32 == 0 
@@ -129,9 +111,11 @@ if __name__ ==  '__main__':
     
     
     #Set the model in evaluation mode
+    # 变成测试模式，这主要是对dropout和batch normalization的操作在训练和测试的时候是不一样的
     model.eval()
     
-    read_dir = time.time()
+    read_dir = time.time() #read_dir 是一个用于测量时间的检查点,开始计时
+    # 加载待检测图像列表
     #Detection phase
     try:
         imlist = [osp.join(osp.realpath('.'), images, img) for img in os.listdir(images) if os.path.splitext(img)[1] == '.png' or os.path.splitext(img)[1] =='.jpeg' or os.path.splitext(img)[1] =='.jpg']
@@ -145,8 +129,9 @@ if __name__ ==  '__main__':
     if not os.path.exists(args.det):
         os.makedirs(args.det)
         
-    load_batch = time.time()
-    
+    load_batch = time.time() # 开始载入图片的时间。 load_batch - read_dir 得到读取所有图片路径的时间
+
+    # map函数将对应的元素作为参数传入prep_image函数，最终的所有结果也会组成一个列表(im_batches)，是BxCxHxW
     batches = list(map(prep_image, imlist, [inp_dim for x in range(len(imlist))]))
     im_batches = [x[0] for x in batches]
     orig_ims = [x[1] for x in batches]
@@ -174,6 +159,7 @@ if __name__ ==  '__main__':
     
 
     write = False
+    # 开始计时，计算开始检测的时间。start_det_loop - load_batch 为读入所有图片并将它们分成不同batch的时间
     model(get_test_input(inp_dim, CUDA), CUDA)
     
     start_det_loop = time.time()
@@ -209,24 +195,17 @@ if __name__ ==  '__main__':
         #loops are slower than vectorised operations. 
         
         prediction = write_results(prediction, confidence, num_classes, nms = True, nms_conf = nms_thesh)
-        
-        
+
+        # 如果从write_results()返回的一个batch的结果是一个int(0)，表示没有检测到时目标，此时用continue跳过本次循环
         if type(prediction) == int:
             i += 1
             continue
 
         end = time.time()
-        
-                    
-#        print(end - start)
 
-            
-
+        # prediction[:,0]取出了每个方框在所在图片在这个batch(第i个batch)中的序号，加上i*batch_size，就将prediction中每个框(一行)的第一个元素（维度0）变成了这个框所在图片在imlist中的序号，即在所有图片中的序号
         prediction[:,0] += i*batch_size
-        
-    
-            
-          
+
         if not write:
             output = prediction
             write = 1
